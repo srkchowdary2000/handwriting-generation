@@ -1,18 +1,11 @@
 import os
 import bottle
-import base64
 import pickle
 import argparse
 import numpy as np
 import tensorflow as tf
 from io import BytesIO
 import matplotlib.pyplot as plt
-import matplotlib.cm as cm
-import matplotlib.mlab as mlab
-from matplotlib import animation
-import seaborn
-from io import BytesIO
-from collections import namedtuple
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', dest='model_path', type=str, default=os.path.join('pretrained', 'model-29'))
@@ -178,4 +171,6 @@ def main():
 
 app = main()
 if __name__ == '__main__':
-    app.run()
+    port = os.environ.get("PORT")
+    port = port if port else 8000
+    app.run(port=8000, host='0.0.0.0')
