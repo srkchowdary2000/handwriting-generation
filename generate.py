@@ -6,6 +6,7 @@ import numpy as np
 import tensorflow as tf
 from io import BytesIO
 import matplotlib
+from collections import namedtuple
 
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
@@ -48,7 +49,7 @@ def cumsum(points):
     return np.concatenate([sums, points[:, 2:]], axis=1)
 
 
-def sample_text(sess, args_text, translation, style=None):
+def sample_text(sess, args_text, translation, bias, style=None):
     fields = ['coordinates', 'sequence', 'bias', 'e', 'pi', 'mu1', 'mu2', 'std1', 'std2',
               'rho', 'window', 'kappa', 'phi', 'finish', 'zero_states']
     vs = namedtuple('Params', fields)(
@@ -91,7 +92,7 @@ def sample_text(sess, args_text, translation, style=None):
                                               feed_dict={
                                                   vs.coordinates: coord[None, None, ...],
                                                   vs.sequence: sequence_prime if is_priming else sequence,
-                                                  vs.bias: args.bias
+                                                  vs.bias: bias
                                               })
 
         if is_priming:
@@ -130,6 +131,10 @@ def main():
         device_count={'GPU': 0}
     )
     app = bottle.Bottle()
+
+    @app.post("/")
+    def home():
+        return '''https://github.com/theSage21/handwriting-generation'''
     with tf.Session(config=config) as sess:
         saver = tf.train.import_meta_graph(args.model_path + '.meta')
         saver.restore(sess, args.model_path)
@@ -138,6 +143,7 @@ def main():
         def write_post():
             args_text = bottle.request.json['text']
             args.style = bottle.request.json['style']
+            args.bias = bottle.request.json['bias']
 
             style = None
             if args.style is not None:
@@ -150,7 +156,7 @@ def main():
 
                 style = [styles[0][args.style], styles[1][args.style]]
 
-            phi_data, window_data, kappa_data, stroke_data, coords = sample_text(sess, args_text, translation, style)
+            phi_data, window_data, kappa_data, stroke_data, coords = sample_text(sess, args_text, translation, args.bias, style)
 
             strokes = np.array(stroke_data)
             epsilon = 1e-8
@@ -168,12 +174,11 @@ def main():
             figfile.seek(0)  # rewind to beginning of file
             bottle.response.set_header('Content-type', 'image/png')
             return figfile
-    return app
+        port = os.environ.get("PORT")
+        port = port if port else 8000
+        app.run(port=port, host='0.0.0.0')
 
 
 
-app = main()
 if __name__ == '__main__':
-    port = os.environ.get("PORT")
-    port = port if port else 8000
-    app.run(port=port, host='0.0.0.0')
+    main()
