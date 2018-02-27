@@ -5,6 +5,9 @@ import argparse
 import numpy as np
 import tensorflow as tf
 from io import BytesIO
+import matplotlib
+
+matplotlib.use('agg')
 import matplotlib.pyplot as plt
 
 parser = argparse.ArgumentParser()
