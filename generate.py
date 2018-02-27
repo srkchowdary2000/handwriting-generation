@@ -176,4 +176,4 @@ app = main()
 if __name__ == '__main__':
     port = os.environ.get("PORT")
     port = port if port else 8000
-    app.run(port=8000, host='0.0.0.0')
+    app.run(port=port, host='0.0.0.0')
