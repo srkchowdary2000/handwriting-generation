@@ -1,13 +1,17 @@
 import os
+import bottle
+import base64
 import pickle
 import argparse
 import numpy as np
 import tensorflow as tf
+from io import BytesIO
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.mlab as mlab
 from matplotlib import animation
 import seaborn
+from io import BytesIO
 from collections import namedtuple
 
 parser = argparse.ArgumentParser()
@@ -129,15 +133,15 @@ def main():
     config = tf.ConfigProto(
         device_count={'GPU': 0}
     )
+    app = bottle.Bottle()
     with tf.Session(config=config) as sess:
         saver = tf.train.import_meta_graph(args.model_path + '.meta')
         saver.restore(sess, args.model_path)
 
-        while True:
-            if args.text is not None:
-                args_text = args.text
-            else:
-                args_text = input('What to generate: ')
+        @app.post("/write")
+        def write_post():
+            args_text = bottle.request.json['text']
+            args.style = bottle.request.json['style']
 
             style = None
             if args.style is not None:
@@ -158,89 +162,20 @@ def main():
             minx, maxx = np.min(strokes[:, 0]), np.max(strokes[:, 0])
             miny, maxy = np.min(strokes[:, 1]), np.max(strokes[:, 1])
 
-            if args.info:
-                delta = abs(maxx - minx) / 400.
-                x = np.arange(minx, maxx, delta)
-                y = np.arange(miny, maxy, delta)
-                x_grid, y_grid = np.meshgrid(x, y)
-                z_grid = np.zeros_like(x_grid)
-                for i in range(strokes.shape[0]):
-                    gauss = mlab.bivariate_normal(x_grid, y_grid, mux=strokes[i, 0], muy=strokes[i, 1],
-                                                  sigmax=strokes[i, 2], sigmay=strokes[i, 3],
-                                                  sigmaxy=0.)  # strokes[i, 4]
-                    z_grid += gauss * np.power(strokes[i, 2] + strokes[i, 3], 0.4) / (np.max(gauss) + epsilon)
-
-                fig, ax = plt.subplots(2, 2)
-
-                ax[0, 0].imshow(z_grid, interpolation='bilinear', aspect='auto', cmap=cm.jet)
-                ax[0, 0].grid(False)
-                ax[0, 0].set_title('Densities')
-                ax[0, 0].set_aspect('equal')
-
-                for stroke in split_strokes(cumsum(np.array(coords))):
-                    ax[0, 1].plot(stroke[:, 0], -stroke[:, 1])
-                ax[0, 1].set_title('Handwriting')
-                ax[0, 1].set_aspect('equal')
-
-                phi_img = np.vstack(phi_data).T[::-1, :]
-                ax[1, 0].imshow(phi_img, interpolation='nearest', aspect='auto', cmap=cm.jet)
-                ax[1, 0].set_yticks(np.arange(0, len(args_text) + 1))
-                ax[1, 0].set_yticklabels(list(' ' + args_text[::-1]), rotation='vertical', fontsize=8)
-                ax[1, 0].grid(False)
-                ax[1, 0].set_title('Phi')
-
-                window_img = np.vstack(window_data).T
-                ax[1, 1].imshow(window_img, interpolation='nearest', aspect='auto', cmap=cm.jet)
-                ax[1, 1].set_yticks(np.arange(0, len(charset)))
-                ax[1, 1].set_yticklabels(list(charset), rotation='vertical', fontsize=8)
-                ax[1, 1].grid(False)
-                ax[1, 1].set_title('Window')
-
-                plt.show()
-            else:
-                fig, ax = plt.subplots(1, 1)
-                for stroke in split_strokes(cumsum(np.array(coords))):
-                    plt.plot(stroke[:, 0], -stroke[:, 1])
-                ax.set_title('Handwriting')
-                ax.set_aspect('equal')
-                plt.show()
-
-            if args.animation:
-                fig, ax = plt.subplots(1, 1, frameon=False, figsize=(2 * (maxx - minx + 2) / (maxy - miny + 1), 2))
-                ax.set_xlim(minx - 1., maxx + 1.)
-                ax.set_ylim(-maxy - 0.5, -miny + 0.5)
-                ax.set_aspect('equal')
-                ax.axis('off')
-                # ax.hold(True)
-
-                plt.draw()
-                plt.show(False)
-
-                background = fig.canvas.copy_from_bbox(ax.bbox)
-
-                sumed = cumsum(coords)
-
-                def _update(i):
-                    c1, c2 = sumed[i: i+2]
-                    fig.canvas.restore_region(background)
-                    if c1[2] == 1. and c2[2] == 1.:
-                        line, = ax.plot([c2[0], c2[0]], [-c2[1], -c2[1]])
-                    elif c1[2] != 1.:
-                        line, = ax.plot([c1[0], c2[0]], [-c1[1], -c2[1]])
-                    else:
-                        line, = ax.plot([c1[0], c1[0]], [-c1[1], -c1[1]])
-                    fig.canvas.blit(ax.bbox)
-                    return line,
-
-                anim = animation.FuncAnimation(fig, _update, frames=len(sumed) - 2,
-                                               interval=16, blit=True, repeat=False)
-                if args.save is not None:
-                    anim.save(args.save, fps=60, extra_args=['-vcodec', 'libx264'])
-                plt.show()
-
-            if args.text is not None:
-                break
+            fig, ax = plt.subplots(1, 1)
+            for stroke in split_strokes(cumsum(np.array(coords))):
+                plt.plot(stroke[:, 0], -stroke[:, 1])
+            ax.set_aspect('equal')
+            plt.axis('off')
+            figfile = BytesIO()
+            plt.savefig(figfile, format='png')
+            figfile.seek(0)  # rewind to beginning of file
+            bottle.response.set_header('Content-type', 'image/png')
+            return figfile
+    return app
 
 
+
+app = main()
 if __name__ == '__main__':
-    main()
+    app.run()
